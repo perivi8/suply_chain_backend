@@ -8,20 +8,24 @@ from datetime import datetime
 import base64
 from io import BytesIO
 import logging
-from sqlalchemy.exc import IntegrityError
 
-# Configure logging
+# Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///supply_chain.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-CORS(app, resources={r"/*": {"origins": ["http://localhost:4200", "https://medical-supply-chain.vercel.app"]}})
+
+# Configure CORS to allow requests from the deployed frontend
+CORS(app, resources={r"/*": {"origins": "https://medical-supply-chain.vercel.app"}})
 
 init_db(app)
 
-# QR code directories
+# Get frontend URL from environment variable
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://medical-supply-chain.vercel.app")
+
+# Ensure QR code directories exist
 QR_CODE_DIR = os.path.join(os.getcwd(), 'qr_code')
 QR_CODE_FARMER_DIR = os.path.join(QR_CODE_DIR, 'farmer')
 QR_CODE_MANUFACTURER_DIR = os.path.join(QR_CODE_DIR, 'manufacturer')
@@ -32,14 +36,11 @@ os.makedirs(QR_CODE_MANUFACTURER_DIR, exist_ok=True)
 os.makedirs(QR_CODE_DISTRIBUTOR_DIR, exist_ok=True)
 os.makedirs(QR_CODE_RETAILER_DIR, exist_ok=True)
 
-# Set backend base URL
-BASE_URL = "https://suply-chain-backend-6.onrender.com"
-
-# --- User Registration ---
 @app.route('/register', methods=['POST'])
 def register():
     data = request.get_json()
-
+    
+    # Define required credentials for each role
     required_credentials = {
         'Manufacturer': {
             'first_name': 'manufacturer',
@@ -69,6 +70,7 @@ def register():
 
     role = data.get('role')
     if role in required_credentials:
+        # Validate credentials for Manufacturer, Distributor, Retailer
         expected = required_credentials[role]
         if (
             data.get('first_name') != expected['first_name'] or
@@ -79,11 +81,15 @@ def register():
             data.get('confirm_password') != expected['confirm_password'] or
             data.get('password') != data.get('confirm_password')
         ):
+            logger.warning(f"Invalid credentials for {role}")
             return jsonify({'error': f'Invalid credentials for {role}. Please use the specified credentials.'}), 400
 
+    # Check for existing email
     if User.query.filter_by(email=data['email']).first():
+        logger.warning(f"Email already exists: {data['email']}")
         return jsonify({'error': 'Email already exists'}), 400
-
+    
+    # Register user
     user = User(
         first_name=data['first_name'],
         last_name=data['last_name'],
@@ -92,39 +98,28 @@ def register():
         password=data['password'],
         role=data['role']
     )
-    try:
-        db.session.add(user)
-        db.session.commit()
-        return jsonify({'message': 'User registered successfully'})
-    except IntegrityError:
-        db.session.rollback()
-        return jsonify({'error': 'Database error: User creation failed'}), 400
+    db.session.add(user)
+    db.session.commit()
+    logger.info(f"User registered: {data['email']}")
+    return jsonify({'message': 'User registered successfully'})
 
-# --- User Login ---
 @app.route('/login', methods=['POST'])
 def login():
     data = request.get_json()
     user = User.query.filter((User.email == data['identifier']) | (User.phone == data['identifier'])).first()
     if user and user.password == data['password']:
+        logger.info(f"User logged in: {user.email}")
         return jsonify({
             'id': user.id,
             'first_name': user.first_name,
             'role': user.role
         })
+    logger.warning(f"Invalid login attempt for {data['identifier']}")
     return jsonify({'error': 'Invalid credentials'}), 401
 
-# --- Role Access Checks ---
-def get_json_data_or_400():
-    try:
-        return request.get_json(force=True)
-    except Exception:
-        return None
-
-@app.route('/manufacturer', methods=['POST'])
+@app.route('/manufacturer', methods=['GET'])
 def check_manufacturer():
-    data = get_json_data_or_400()
-    if not data or 'user_id' not in data:
-        return jsonify({'error': 'Missing user_id in request body'}), 400
+    data = request.get_json()
     user = User.query.filter_by(id=data['user_id']).first()
     if user and user.role == 'Manufacturer':
         expected = {
@@ -139,38 +134,39 @@ def check_manufacturer():
             user.email == expected['email'] and
             user.phone == expected['phone']
         ):
+            logger.info(f"Manufacturer access granted: {user.email}")
             return jsonify({'message': 'Access granted'})
+        logger.warning(f"Invalid Manufacturer credentials for user: {user.email}")
         return jsonify({'error': 'Unauthorized: Invalid Manufacturer credentials'}), 403
+    logger.warning(f"Unauthorized Manufacturer access for user_id: {data['user_id']}")
     return jsonify({'error': 'Unauthorized: Not a Manufacturer'}), 403
 
-@app.route('/distributor', methods=['POST'])
+@app.route('/distributor', methods=['GET'])
 def check_distributor():
-    data = get_json_data_or_400()
-    if not data or 'user_id' not in data:
-        return jsonify({'error': 'Missing user_id in request body'}), 400
+    data = request.get_json()
     user = User.query.filter_by(id=data['user_id']).first()
-    if user and user.role == 'Distributor':
-        expected = {
-            'first_name': 'distributor',
-            'last_name': 'distributor',
-            'email': 'distributor@gmail.com',
-            'phone': '3333333333'
-        }
-        if (
-            user.first_name == expected['first_name'] and
-            user.last_name == expected['last_name'] and
-            user.email == expected['email'] and
-            user.phone == expected['phone']
-        ):
-            return jsonify({'message': 'Access granted'})
-        return jsonify({'error': 'Unauthorized: Invalid Distributor credentials'}), 403
+    if user and user.role == 'Distributorexpecterator': {
+        'first_name': 'distributor',
+        'last_name': 'distributor',
+        'email': 'distributor@gmail.com',
+        'phone': '3333333333'
+    }
+    if (
+        user.first_name == expected['first_name'] and
+        user.last_name == expected['last_name'] and
+        user.email == expected['email'] and
+        user.phone == expected['phone']
+    ):
+        logger.info(f"Distributor access granted: {user.email}")
+        return jsonify({'message': 'Access granted'})
+    logger.warning(f"Invalid Distributor credentials for user: {user.email}")
+    return jsonify({'error': 'Unauthorized: Invalid Distributor credentials'}), 403
+    logger.warning(f"Unauthorized Distributor access for user_id: {data['user_id']}")
     return jsonify({'error': 'Unauthorized: Not a Distributor'}), 403
 
-@app.route('/retailer', methods=['POST'])
+@app.route('/retailer', methods=['GET'])
 def check_retailer():
-    data = get_json_data_or_400()
-    if not data or 'user_id' not in data:
-        return jsonify({'error': 'Missing user_id in request body'}), 400
+    data = request.get_json()
     user = User.query.filter_by(id=data['user_id']).first()
     if user and user.role == 'Retailer':
         expected = {
@@ -185,45 +181,42 @@ def check_retailer():
             user.email == expected['email'] and
             user.phone == expected['phone']
         ):
+            logger.info(f"Retailer access granted: {user.email}")
             return jsonify({'message': 'Access granted'})
+        logger.warning(f"Invalid Retailer credentials for user: {user.email}")
         return jsonify({'error': 'Unauthorized: Invalid Retailer credentials'}), 403
+    logger.warning(f"Unauthorized Retailer access for user_id: {data['user_id']}")
     return jsonify({'error': 'Unauthorized: Not a Retailer'}), 403
 
-# --- Raw Material ---
 @app.route('/raw_material', methods=['POST'])
 def add_raw_material():
     data = request.get_json()
-    try:
-        raw_material = RawMaterial(
-            user_id=data['user_id'],
-            material_type=data['material_type'],
-            quantity=data['quantity'],
-            source_location=data['source_location'],
-            supply_date=datetime.strptime(data['supply_date'], '%Y-%m-%d')
-        )
-        db.session.add(raw_material)
-        db.session.commit()
-    except (KeyError, ValueError) as e:
-        return jsonify({'error': 'Invalid or missing data'}), 400
-    except IntegrityError:
-        db.session.rollback()
-        return jsonify({'error': 'Database error: Invalid user_id'}), 400
-
-    qr_url = f"{BASE_URL}/consumer/{raw_material.id}"
-    logger.info(f"Generating QR code for raw material ID {raw_material.id}: {qr_url}")
-
+    raw_material = RawMaterial(
+        user_id=data['user_id'],
+        material_type=data['material_type'],
+        quantity=data['quantity'],
+        source_location=data['source_location'],
+        supply_date=datetime.strptime(data['supply_date'], '%Y-%m-%d')
+    )
+    db.session.add(raw_material)
+    db.session.commit()
+    
+    # Generate QR code
     qr = qrcode.QRCode(version=1, box_size=10, border=5)
-    qr.add_data(qr_url)
+    qr.add_data(f"{FRONTEND_URL}/consumer/{raw_material.id}")
     qr.make(fit=True)
     img = qr.make_image(fill='black', back_color='white')
-
+    
+    # Save QR code
     qr_path = os.path.join(QR_CODE_FARMER_DIR, f"raw_material_{raw_material.id}.png")
     img.save(qr_path)
-
+    
+    # Convert to base64 for response
     buffered = BytesIO()
     img.save(buffered, format="PNG")
     img_str = base64.b64encode(buffered.getvalue()).decode()
-
+    
+    logger.info(f"Raw material added: ID {raw_material.id}")
     return jsonify({
         'id': raw_material.id,
         'message': 'Raw material added successfully',
@@ -232,112 +225,72 @@ def add_raw_material():
 
 @app.route('/raw_materials', methods=['GET'])
 def get_raw_materials():
+    # Get raw materials not used in any Medicine
     used_raw_material_ids = db.session.query(Medicine.raw_material_id).distinct().subquery()
     materials = RawMaterial.query.filter(~RawMaterial.id.in_(used_raw_material_ids)).all()
+    logger.info(f"Fetched {len(materials)} available raw materials")
     return jsonify([{
         'id': m.id,
         'material_type': m.material_type,
         'quantity': m.quantity
     } for m in materials])
 
-# --- Medicine ---
-@app.route('/medicine', methods=['POST'])
-def add_medicine():
-    data = request.get_json()
-    try:
-        medicine = Medicine(
-            user_id=data['user_id'],
-            raw_material_id=data['raw_material_id'],
-            medicine_name=data['medicine_name'],
-            batch_number=data['batch_number'],
-            production_date=datetime.strptime(data['production_date'], '%Y-%m-%d'),
-            expiry_date=datetime.strptime(data['expiry_date'], '%Y-%m-%d')
-        )
-        db.session.add(medicine)
-        db.session.commit()
-    except (KeyError, ValueError) as e:
-        return jsonify({'error': 'Invalid or missing data'}), 400
-    except IntegrityError:
-        db.session.rollback()
-        return jsonify({'error': 'Database error: Invalid user_id or raw_material_id'}), 400
-
-    qr_url = f"{BASE_URL}/consumer/{medicine.id}"
-    logger.info(f"Generating QR code for medicine ID {medicine.id}: {qr_url}")
-
-    qr = qrcode.QRCode(version=1, box_size=10, border=5)
-    qr.add_data(qr_url)
-    qr.make(fit=True)
-    img = qrcode.make_image(fill='black', back_color='white')
-
-    qr_path_manufacturer = os.path.join(QR_CODE_MANUFACTURER_DIR, f"medicine_{medicine.id}.png")
-    img.save(qr_path_manufacturer)
-
-    buffered = BytesIO()
-    img.save(buffered, format="PNG")
-    img_str = base64.b64encode(buffered.getvalue()).decode()
-
-    return jsonify({
-        'id': medicine.id,
-        'message': 'Medicine added successfully',
-        'qr_code': f"data:image/png;base64,{img_str}"
-    })
-
 @app.route('/medicines', methods=['GET'])
 def get_medicines():
+    # Get medicines not used in any Distribution
     used_medicine_ids = db.session.query(Distribution.medicine_id).distinct().subquery()
     medicines = Medicine.query.filter(~Medicine.id.in_(used_medicine_ids)).all()
+    logger.info(f"Fetched {len(medicines)} available medicines")
     return jsonify([{
         'id': m.id,
         'medicine_name': m.medicine_name,
         'batch_number': m.batch_number
     } for m in medicines])
 
-# --- Distribution ---
-@app.route('/distribution', methods=['POST'])
-def add_distribution():
+@app.route('/medicine', methods=['POST'])
+def add_medicine():
     data = request.get_json()
-    try:
-        distribution = Distribution(
-            user_id=data['user_id'],
-            medicine_id=data['medicine_id'],
-            shipment_date=datetime.strptime(data['shipment_date'], '%Y-%m-%d'),
-            transport_method=data['transport_method'],
-            destination=data['destination'],
-            storage_condition=data['storage_condition']
-        )
-        db.session.add(distribution)
-        db.session.commit()
-    except (KeyError, ValueError) as e:
-        return jsonify({'error': 'Invalid or missing data'}), 400
-    except IntegrityError:
-        db.session.rollback()
-        return jsonify({'error': 'Database error: Invalid user_id or medicine_id'}), 400
-
-    qr_url = f"{BASE_URL}/consumer/{distribution.medicine_id}"
-    logger.info(f"Generating QR code for distribution, medicine ID {distribution.medicine_id}: {qr_url}")
-
+    medicine = Medicine(
+        user_id=data['user_id'],
+        raw_material_id=data['raw_material_id'],
+        medicine_name=data['medicine_name'],
+        batch_number=data['batch_number'],
+        production_date=datetime.strptime(data['production_date'], '%Y-%m-%d'),
+        expiry_date=datetime.strptime(data['expiry_date'], '%Y-%m-%d')
+    )
+    db.session.add(medicine)
+    db.session.commit()
+    
+    # Generate QR code
     qr = qrcode.QRCode(version=1, box_size=10, border=5)
-    qr.add_data(qr_url)
+    qr.add_data(f"{FRONTEND_URL}/consumer/{medicine.id}")
     qr.make(fit=True)
     img = qr.make_image(fill='black', back_color='white')
-
-    qr_path = os.path.join(QR_CODE_DISTRIBUTOR_DIR, f"medicine_{distribution.medicine_id}.png")
+    
+    # Save QR code to both locations
+    qr_path = os.path.join(QR_CODE_DIR, f"medicine_{medicine.id}.png")
+    qr_path_manufacturer = os.path.join(QR_CODE_MANUFACTURER_DIR, f"medicine_{medicine.id}.png")
     img.save(qr_path)
-
+    img.save(qr_path_manufacturer)
+    
+    # Convert to base64 for response
     buffered = BytesIO()
     img.save(buffered, format="PNG")
     img_str = base64.b64encode(buffered.getvalue()).decode()
-
+    
+    logger.info(f"Medicine added: ID {medicine.id}")
     return jsonify({
-        'id': distribution.id,
-        'message': 'Distribution added successfully',
+        'id': medicine.id,
+        'message': 'Medicine added successfully',
         'qr_code': f"data:image/png;base64,{img_str}"
     })
 
 @app.route('/distributions', methods=['GET'])
 def get_distributions():
+    # Get distributions not used in any RetailSale
     used_distribution_ids = db.session.query(RetailSale.distribution_id).distinct().subquery()
     distributions = Distribution.query.filter(~Distribution.id.in_(used_distribution_ids)).all()
+    logger.info(f"Fetched {len(distributions)} available distributions")
     return jsonify([{
         'id': d.id,
         'medicine_id': d.medicine_id,
@@ -345,60 +298,92 @@ def get_distributions():
         'shipment_date': d.shipment_date.strftime('%Y-%m-%d')
     } for d in distributions])
 
-# --- Retail Sale ---
-@app.route('/retail', methods=['POST'])
-def add_retail():
+@app.route('/distribution', methods=['POST'])
+def add_distribution():
     data = request.get_json()
-    try:
-        retail = RetailSale(
-            user_id=data['user_id'],
-            distribution_id=data['distribution_id'],
-            received_date=datetime.strptime(data['received_date'], '%Y-%m-%d'),
-            price=data['price'],
-            retail_location=data['retail_location']
-        )
-        db.session.add(retail)
-        db.session.commit()
-    except (KeyError, ValueError) as e:
-        return jsonify({'error': 'Invalid or missing data'}), 400
-    except IntegrityError:
-        db.session.rollback()
-        return jsonify({'error': 'Database error: Invalid user_id or distribution_id'}), 400
-
-    distribution = Distribution.query.get_or_404(data['distribution_id'])
-    medicine_id = distribution.medicine_id
-
-    qr_url = f"{BASE_URL}/consumer/{medicine_id}"
-    logger.info(f"Generating QR code for retail, medicine ID {medicine_id}: {qr_url}")
-
+    distribution = Distribution(
+        user_id=data['user_id'],
+        medicine_id=data['medicine_id'],
+        shipment_date=datetime.strptime(data['shipment_date'], '%Y-%m-%d'),
+        transport_method=data['transport_method'],
+        destination=data['destination'],
+        storage_condition=data['storage_condition']
+    )
+    db.session.add(distribution)
+    db.session.commit()
+    
+    # Generate QR code
     qr = qrcode.QRCode(version=1, box_size=10, border=5)
-    qr.add_data(qr_url)
+    qr.add_data(f"{FRONTEND_URL}/consumer/{distribution.medicine_id}")
     qr.make(fit=True)
     img = qr.make_image(fill='black', back_color='white')
-
-    qr_path = os.path.join(QR_CODE_RETAILER_DIR, f"medicine_{medicine_id}.png")
+    
+    # Save QR code
+    qr_path = os.path.join(QR_CODE_DISTRIBUTOR_DIR, f"medicine_{distribution.medicine_id}.png")
     img.save(qr_path)
-
+    
+    # Convert to base64 for response
     buffered = BytesIO()
     img.save(buffered, format="PNG")
     img_str = base64.b64encode(buffered.getvalue()).decode()
+    
+    logger.info(f"Distribution added: ID {distribution.id}")
+    return jsonify({
+        'id': distribution.id,
+        'message': 'Distribution added successfully',
+        'qr_code': f"data:image/png;base64,{img_str}"
+    })
 
+@app.route('/retail', methods=['POST'])
+def add_retail():
+    data = request.get_json()
+    retail = RetailSale(
+        user_id=data['user_id'],
+        distribution_id=data['distribution_id'],
+        received_date=datetime.strptime(data['received_date'], '%Y-%m-%d'),
+        price=data['price'],
+        retail_location=data['retail_location']
+    )
+    db.session.add(retail)
+    db.session.commit()
+    
+    # Get medicine_id from distribution
+    distribution = Distribution.query.get_or_404(data['distribution_id'])
+    medicine_id = distribution.medicine_id
+    
+    # Generate QR code
+    qr = qrcode.QRCode(version=1, box_size=10, border=5)
+    qr.add_data(f"{FRONTEND_URL}/consumer/{medicine_id}")
+    qr.make(fit=True)
+    img = qr.make_image(fill='black', back_color='white')
+    
+    # Save QR code
+    qr_path = os.path.join(QR_CODE_RETAILER_DIR, f"medicine_{medicine_id}.png")
+    img.save(qr_path)
+    
+    # Convert to base64 for response
+    buffered = BytesIO()
+    img.save(buffered, format="PNG")
+    img_str = base64.b64encode(buffered.getvalue()).decode()
+    
+    logger.info(f"Retail sale added: ID {retail.id}")
     return jsonify({
         'id': retail.id,
         'message': 'Retail sale added successfully',
         'qr_code': f"data:image/png;base64,{img_str}"
     })
 
-# --- Product History ---
 @app.route('/product_history/<int:id>', methods=['GET'])
 def get_product_history(id):
+    logger.info(f"Fetching product history for ID: {id}")
+    # Try to find a medicine first
     medicine = Medicine.query.get(id)
     if medicine:
         raw_material = RawMaterial.query.get(medicine.raw_material_id)
         distributions = Distribution.query.filter_by(medicine_id=medicine.id).all()
         retail_sales = RetailSale.query.filter(RetailSale.distribution_id.in_(
             [d.id for d in distributions])).all()
-
+        
         return jsonify({
             'raw_material': {
                 'material_type': raw_material.material_type,
@@ -424,7 +409,8 @@ def get_product_history(id):
                 'retail_location': r.retail_location
             } for r in retail_sales]
         })
-
+    
+    # Try to find a raw material
     raw_material = RawMaterial.query.get(id)
     if raw_material:
         return jsonify({
@@ -438,16 +424,9 @@ def get_product_history(id):
             'distributions': [],
             'retail_sales': []
         })
-
-    logger.error(f"Record not found for ID {id}")
+    
+    logger.warning(f"Record not found for ID: {id}")
     return jsonify({'error': 'Record not found'}), 404
 
-# --- Consumer Route for QR Code Scanning ---
-@app.route('/consumer/<int:id>', methods=['GET'])
-def consumer_product_history(id):
-    logger.info(f"Received QR code scan request for ID {id}")
-    return get_product_history(id)
-
-# --- Main ---
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
