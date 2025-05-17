@@ -1,7 +1,7 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from models import db, User, RawMaterial, Medicine, Distribution, RetailSale
-from database import init_db
+from database import db, init_db
+from models import User, RawMaterial, Medicine, Distribution, RetailSale
 import qrcode
 import os
 from datetime import datetime
@@ -16,7 +16,6 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-# Use DATABASE_URL for PostgreSQL, fallback to SQLite for local testing
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///supply_chain.db').replace('postgres://', 'postgresql://')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
@@ -37,6 +36,7 @@ try:
     logger.info("Database initialized successfully")
 except Exception as e:
     logger.error(f"Failed to initialize database: {str(e)}\n{traceback.format_exc()}")
+    raise
 
 # Get frontend URL
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://medical-supply-chain.vercel.app")
@@ -120,13 +120,11 @@ def register():
                 logger.warning(f"Invalid credentials for {role}")
                 return jsonify({'error': f'Invalid credentials for {role}. Please use the specified credentials.'}), 400
 
-        # Check for existing email
         with app.app_context():
             if User.query.filter_by(email=data['email']).first():
                 logger.warning(f"Email already exists: {data['email']}")
                 return jsonify({'error': 'Email already exists'}), 400
 
-            # Register user
             user = User(
                 first_name=data['first_name'],
                 last_name=data['last_name'],
@@ -338,17 +336,14 @@ def add_raw_material():
             db.session.add(raw_material)
             db.session.commit()
             
-            # Generate QR code
             qr = qrcode.QRCode(version=1, box_size=10, border=5)
             qr.add_data(f"{FRONTEND_URL}/consumer/{raw_material.id}")
             qr.make(fit=True)
             img = qr.make_image(fill='black', back_color='white')
             
-            # Save QR code
             qr_path = os.path.join(QR_CODE_FARMER_DIR, f"raw_material_{raw_material.id}.png")
             img.save(qr_path)
             
-            # Convert to base64 for response
             buffered = BytesIO()
             img.save(buffered, format="PNG")
             img_str = base64.b64encode(buffered.getvalue()).decode()
@@ -536,7 +531,7 @@ def add_distribution():
             qr = qrcode.QRCode(version=1, box_size=10, border=5)
             qr.add_data(f"{FRONTEND_URL}/consumer/{distribution.medicine_id}")
             qr.make(fit=True)
-            img = qr.make_image(fill='black', back_color='white')
+            img = qrcode.make_image(fill='black', back_color='white')
             
             qr_path = os.path.join(QR_CODE_DISTRIBUTOR_DIR, f"medicine_{distribution.medicine_id}.png")
             img.save(qr_path)
