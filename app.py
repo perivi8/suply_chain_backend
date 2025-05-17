@@ -180,7 +180,7 @@ def add_raw_material():
     
     # Generate QR code
     qr = qrcode.QRCode(version=1, box_size=10, border=5)
-    qr.add_data(f"http://localhost:4200/consumer/{raw_material.id}")
+    qr.add_data(f"https://medical-supply-chain.vercel.app/consumer/{raw_material.id}")
     qr.make(fit=True)
     img = qr.make_image(fill='black', back_color='white')
     
@@ -237,7 +237,7 @@ def add_medicine():
     
     # Generate QR code
     qr = qrcode.QRCode(version=1, box_size=10, border=5)
-    qr.add_data(f"http://localhost:4200/consumer/{medicine.id}")
+    qr.add_data(f"https://medical-supply-chain.vercel.app/consumer/{medicine.id}")
     qr.make(fit=True)
     img = qr.make_image(fill='black', back_color='white')
     
@@ -286,7 +286,7 @@ def add_distribution():
     
     # Generate QR code
     qr = qrcode.QRCode(version=1, box_size=10, border=5)
-    qr.add_data(f"http://localhost:4200/consumer/{distribution.medicine_id}")
+    qr.add_data(f"https://medical-supply-chain.vercel.app/consumer/{distribution.medicine_id}")
     qr.make(fit=True)
     img = qr.make_image(fill='black', back_color='white')
     
@@ -324,7 +324,7 @@ def add_retail():
     
     # Generate QR code
     qr = qrcode.QRCode(version=1, box_size=10, border=5)
-    qr.add_data(f"http://localhost:4200/consumer/{medicine_id}")
+    qr.add_data(f"https://medical-supply-chain.vercel.app/consumer/{medicine_id}")
     qr.make(fit=True)
     img = qr.make_image(fill='black', back_color='white')
     
