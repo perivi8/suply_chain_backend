@@ -8,17 +8,19 @@ from datetime import datetime
 import base64
 from io import BytesIO
 import logging
+import traceback
 from sqlalchemy.exc import SQLAlchemyError
 
 # Set up logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///supply_chain.db'
+# Use DATABASE_URL for PostgreSQL, fallback to SQLite for local testing
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///supply_chain.db').replace('postgres://', 'postgresql://')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-# Configure CORS to allow requests from localhost (dev) and deployed frontend (prod)
+# Configure CORS
 ALLOWED_ORIGINS = [
     "https://medical-supply-chain.vercel.app",
     "http://localhost:4200"
@@ -34,9 +36,9 @@ try:
     init_db(app)
     logger.info("Database initialized successfully")
 except Exception as e:
-    logger.error(f"Failed to initialize database: {str(e)}")
+    logger.error(f"Failed to initialize database: {str(e)}\n{traceback.format_exc()}")
 
-# Get frontend URL from environment variable
+# Get frontend URL
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://medical-supply-chain.vercel.app")
 
 # Ensure QR code directories exist
@@ -105,7 +107,6 @@ def register():
 
         role = data.get('role')
         if role in required_credentials:
-            # Validate credentials for Manufacturer, Distributor, Retailer
             expected = required_credentials[role]
             if (
                 data.get('first_name') != expected['first_name'] or
@@ -141,11 +142,11 @@ def register():
 
     except SQLAlchemyError as e:
         db.session.rollback()
-        logger.error(f"Database error during registration: {str(e)}")
-        return jsonify({'error': 'Database error occurred. Please try again.'}), 500
+        logger.error(f"Database error during registration: {str(e)}\n{traceback.format_exc()}")
+        return jsonify({'error': f'Database error: {str(e)}'}), 500
     except Exception as e:
-        logger.error(f"Unexpected error during registration: {str(e)}")
-        return jsonify({'error': 'An unexpected error occurred. Please try again.'}), 500
+        logger.error(f"Unexpected error during registration: {str(e)}\n{traceback.format_exc()}")
+        return jsonify({'error': f'Unexpected error: {str(e)}'}), 500
 
 @app.route('/login', methods=['POST', 'OPTIONS'])
 def login():
@@ -176,11 +177,11 @@ def login():
             return jsonify({'error': 'Invalid credentials'}), 401
 
     except SQLAlchemyError as e:
-        logger.error(f"Database error during login: {str(e)}")
-        return jsonify({'error': 'Database error occurred. Please try again.'}), 500
+        logger.error(f"Database error during login: {str(e)}\n{traceback.format_exc()}")
+        return jsonify({'error': f'Database error: {str(e)}'}), 500
     except Exception as e:
-        logger.error(f"Unexpected error during login: {str(e)}")
-        return jsonify({'error': 'An unexpected error occurred. Please try again.'}), 500
+        logger.error(f"Unexpected error during login: {str(e)}\n{traceback.format_exc()}")
+        return jsonify({'error': f'Unexpected error: {str(e)}'}), 500
 
 @app.route('/manufacturer', methods=['GET', 'OPTIONS'])
 def check_manufacturer():
@@ -221,8 +222,8 @@ def check_manufacturer():
             return jsonify({'error': 'Unauthorized: Not a Manufacturer'}), 403
 
     except Exception as e:
-        logger.error(f"Error in check_manufacturer: {str(e)}")
-        return jsonify({'error': 'An unexpected error occurred. Please try again.'}), 500
+        logger.error(f"Error in check_manufacturer: {str(e)}\n{traceback.format_exc()}")
+        return jsonify({'error': f'Unexpected error: {str(e)}'}), 500
 
 @app.route('/distributor', methods=['GET', 'OPTIONS'])
 def check_distributor():
@@ -263,8 +264,8 @@ def check_distributor():
             return jsonify({'error': 'Unauthorized: Not a Distributor'}), 403
 
     except Exception as e:
-        logger.error(f"Error in check_distributor: {str(e)}")
-        return jsonify({'error': 'An unexpected error occurred. Please try again.'}), 500
+        logger.error(f"Error in check_distributor: {str(e)}\n{traceback.format_exc()}")
+        return jsonify({'error': f'Unexpected error: {str(e)}'}), 500
 
 @app.route('/retailer', methods=['GET', 'OPTIONS'])
 def check_retailer():
@@ -305,8 +306,8 @@ def check_retailer():
             return jsonify({'error': 'Unauthorized: Not a Retailer'}), 403
 
     except Exception as e:
-        logger.error(f"Error in check_retailer: {str(e)}")
-        return jsonify({'error': 'An unexpected error occurred. Please try again.'}), 500
+        logger.error(f"Error in check_retailer: {str(e)}\n{traceback.format_exc()}")
+        return jsonify({'error': f'Unexpected error: {str(e)}'}), 500
 
 @app.route('/raw_material', methods=['POST', 'OPTIONS'])
 def add_raw_material():
@@ -361,11 +362,11 @@ def add_raw_material():
 
     except SQLAlchemyError as e:
         db.session.rollback()
-        logger.error(f"Database error in add_raw_material: {str(e)}")
-        return jsonify({'error': 'Database error occurred. Please try again.'}), 500
+        logger.error(f"Database error in add_raw_material: {str(e)}\n{traceback.format_exc()}")
+        return jsonify({'error': f'Database error: {str(e)}'}), 500
     except Exception as e:
-        logger.error(f"Unexpected error in add_raw_material: {str(e)}")
-        return jsonify({'error': 'An unexpected error occurred. Please try again.'}), 500
+        logger.error(f"Unexpected error in add_raw_material: {str(e)}\n{traceback.format_exc()}")
+        return jsonify({'error': f'Unexpected error: {str(e)}'}), 500
 
 @app.route('/raw_materials', methods=['GET', 'OPTIONS'])
 def get_raw_materials():
@@ -379,7 +380,6 @@ def get_raw_materials():
 
     try:
         with app.app_context():
-            # Get raw materials not used in any Medicine
             used_raw_material_ids = db.session.query(Medicine.raw_material_id).distinct().subquery()
             materials = RawMaterial.query.filter(~RawMaterial.id.in_(used_raw_material_ids)).all()
             logger.info(f"Fetched {len(materials)} available raw materials")
@@ -390,8 +390,8 @@ def get_raw_materials():
             } for m in materials])
 
     except Exception as e:
-        logger.error(f"Error in get_raw_materials: {str(e)}")
-        return jsonify({'error': 'An unexpected error occurred. Please try again.'}), 500
+        logger.error(f"Error in get_raw_materials: {str(e)}\n{traceback.format_exc()}")
+        return jsonify({'error': f'Unexpected error: {str(e)}'}), 500
 
 @app.route('/medicines', methods=['GET', 'OPTIONS'])
 def get_medicines():
@@ -405,7 +405,6 @@ def get_medicines():
 
     try:
         with app.app_context():
-            # Get medicines not used in any Distribution
             used_medicine_ids = db.session.query(Distribution.medicine_id).distinct().subquery()
             medicines = Medicine.query.filter(~Medicine.id.in_(used_medicine_ids)).all()
             logger.info(f"Fetched {len(medicines)} available medicines")
@@ -416,8 +415,8 @@ def get_medicines():
             } for m in medicines])
 
     except Exception as e:
-        logger.error(f"Error in get_medicines: {str(e)}")
-        return jsonify({'error': 'An unexpected error occurred. Please try again.'}), 500
+        logger.error(f"Error in get_medicines: {str(e)}\n{traceback.format_exc()}")
+        return jsonify({'error': f'Unexpected error: {str(e)}'}), 500
 
 @app.route('/medicine', methods=['POST', 'OPTIONS'])
 def add_medicine():
@@ -449,19 +448,16 @@ def add_medicine():
             db.session.add(medicine)
             db.session.commit()
             
-            # Generate QR code
             qr = qrcode.QRCode(version=1, box_size=10, border=5)
             qr.add_data(f"{FRONTEND_URL}/consumer/{medicine.id}")
             qr.make(fit=True)
             img = qr.make_image(fill='black', back_color='white')
             
-            # Save QR code to both locations
             qr_path = os.path.join(QR_CODE_DIR, f"medicine_{medicine.id}.png")
             qr_path_manufacturer = os.path.join(QR_CODE_MANUFACTURER_DIR, f"medicine_{medicine.id}.png")
             img.save(qr_path)
             img.save(qr_path_manufacturer)
             
-            # Convert to base64 for response
             buffered = BytesIO()
             img.save(buffered, format="PNG")
             img_str = base64.b64encode(buffered.getvalue()).decode()
@@ -475,11 +471,11 @@ def add_medicine():
 
     except SQLAlchemyError as e:
         db.session.rollback()
-        logger.error(f"Database error in add_medicine: {str(e)}")
-        return jsonify({'error': 'Database error occurred. Please try again.'}), 500
+        logger.error(f"Database error in add_medicine: {str(e)}\n{traceback.format_exc()}")
+        return jsonify({'error': f'Database error: {str(e)}'}), 500
     except Exception as e:
-        logger.error(f"Unexpected error in add_medicine: {str(e)}")
-        return jsonify({'error': 'An unexpected error occurred. Please try again.'}), 500
+        logger.error(f"Unexpected error in add_medicine: {str(e)}\n{traceback.format_exc()}")
+        return jsonify({'error': f'Unexpected error: {str(e)}'}), 500
 
 @app.route('/distributions', methods=['GET', 'OPTIONS'])
 def get_distributions():
@@ -493,7 +489,6 @@ def get_distributions():
 
     try:
         with app.app_context():
-            # Get distributions not used in any RetailSale
             used_distribution_ids = db.session.query(RetailSale.distribution_id).distinct().subquery()
             distributions = Distribution.query.filter(~Distribution.id.in_(used_distribution_ids)).all()
             logger.info(f"Fetched {len(distributions)} available distributions")
@@ -505,8 +500,8 @@ def get_distributions():
             } for d in distributions])
 
     except Exception as e:
-        logger.error(f"Error in get_distributions: {str(e)}")
-        return jsonify({'error': 'An unexpected error occurred. Please try again.'}), 500
+        logger.error(f"Error in get_distributions: {str(e)}\n{traceback.format_exc()}")
+        return jsonify({'error': f'Unexpected error: {str(e)}'}), 500
 
 @app.route('/distribution', methods=['POST', 'OPTIONS'])
 def add_distribution():
@@ -538,17 +533,14 @@ def add_distribution():
             db.session.add(distribution)
             db.session.commit()
             
-            # Generate QR code
             qr = qrcode.QRCode(version=1, box_size=10, border=5)
             qr.add_data(f"{FRONTEND_URL}/consumer/{distribution.medicine_id}")
             qr.make(fit=True)
             img = qr.make_image(fill='black', back_color='white')
             
-            # Save QR code
             qr_path = os.path.join(QR_CODE_DISTRIBUTOR_DIR, f"medicine_{distribution.medicine_id}.png")
             img.save(qr_path)
             
-            # Convert to base64 for response
             buffered = BytesIO()
             img.save(buffered, format="PNG")
             img_str = base64.b64encode(buffered.getvalue()).decode()
@@ -562,11 +554,11 @@ def add_distribution():
 
     except SQLAlchemyError as e:
         db.session.rollback()
-        logger.error(f"Database error in add_distribution: {str(e)}")
-        return jsonify({'error': 'Database error occurred. Please try again.'}), 500
+        logger.error(f"Database error in add_distribution: {str(e)}\n{traceback.format_exc()}")
+        return jsonify({'error': f'Database error: {str(e)}'}), 500
     except Exception as e:
-        logger.error(f"Unexpected error in add_distribution: {str(e)}")
-        return jsonify({'error': 'An unexpected error occurred. Please try again.'}), 500
+        logger.error(f"Unexpected error in add_distribution: {str(e)}\n{traceback.format_exc()}")
+        return jsonify({'error': f'Unexpected error: {str(e)}'}), 500
 
 @app.route('/retail', methods=['POST', 'OPTIONS'])
 def add_retail():
@@ -597,21 +589,17 @@ def add_retail():
             db.session.add(retail)
             db.session.commit()
             
-            # Get medicine_id from distribution
             distribution = Distribution.query.get_or_404(data['distribution_id'])
             medicine_id = distribution.medicine_id
             
-            # Generate QR code
             qr = qrcode.QRCode(version=1, box_size=10, border=5)
             qr.add_data(f"{FRONTEND_URL}/consumer/{medicine_id}")
             qr.make(fit=True)
             img = qr.make_image(fill='black', back_color='white')
             
-            # Save QR code
             qr_path = os.path.join(QR_CODE_RETAILER_DIR, f"medicine_{medicine_id}.png")
             img.save(qr_path)
             
-            # Convert to base64 for response
             buffered = BytesIO()
             img.save(buffered, format="PNG")
             img_str = base64.b64encode(buffered.getvalue()).decode()
@@ -625,11 +613,11 @@ def add_retail():
 
     except SQLAlchemyError as e:
         db.session.rollback()
-        logger.error(f"Database error in add_retail: {str(e)}")
-        return jsonify({'error': 'Database error occurred. Please try again.'}), 500
+        logger.error(f"Database error in add_retail: {str(e)}\n{traceback.format_exc()}")
+        return jsonify({'error': f'Database error: {str(e)}'}), 500
     except Exception as e:
-        logger.error(f"Unexpected error in add_retail: {str(e)}")
-        return jsonify({'error': 'An unexpected error occurred. Please try again.'}), 500
+        logger.error(f"Unexpected error in add_retail: {str(e)}\n{traceback.format_exc()}")
+        return jsonify({'error': f'Unexpected error: {str(e)}'}), 500
 
 @app.route('/product_history/<int:id>', methods=['GET', 'OPTIONS'])
 def get_product_history(id):
@@ -644,7 +632,6 @@ def get_product_history(id):
     try:
         logger.info(f"Fetching product history for ID: {id}")
         with app.app_context():
-            # Try to find a medicine first
             medicine = Medicine.query.get(id)
             if medicine:
                 raw_material = RawMaterial.query.get(medicine.raw_material_id)
@@ -678,7 +665,6 @@ def get_product_history(id):
                     } for r in retail_sales]
                 })
             
-            # Try to find a raw material
             raw_material = RawMaterial.query.get(id)
             if raw_material:
                 return jsonify({
@@ -697,8 +683,8 @@ def get_product_history(id):
             return jsonify({'error': 'Record not found'}), 404
 
     except Exception as e:
-        logger.error(f"Error in get_product_history: {str(e)}")
-        return jsonify({'error': 'An unexpected error occurred. Please try again.'}), 500
+        logger.error(f"Error in get_product_history: {str(e)}\n{traceback.format_exc()}")
+        return jsonify({'error': f'Unexpected error: {str(e)}'}), 500
 
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
