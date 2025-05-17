@@ -15,7 +15,7 @@ CORS(app)
 
 init_db(app)
 
-# Ensure QR code directories exist
+# QR code directories
 QR_CODE_DIR = os.path.join(os.getcwd(), 'qr_code')
 QR_CODE_FARMER_DIR = os.path.join(QR_CODE_DIR, 'farmer')
 QR_CODE_MANUFACTURER_DIR = os.path.join(QR_CODE_DIR, 'manufacturer')
@@ -26,11 +26,14 @@ os.makedirs(QR_CODE_MANUFACTURER_DIR, exist_ok=True)
 os.makedirs(QR_CODE_DISTRIBUTOR_DIR, exist_ok=True)
 os.makedirs(QR_CODE_RETAILER_DIR, exist_ok=True)
 
+# Set your backend base URL here or via environment variable
+BASE_URL = os.environ.get("BASE_URL", "http://localhost:5000")
+
+# --- User Registration ---
 @app.route('/register', methods=['POST'])
 def register():
     data = request.get_json()
-    
-    # Define required credentials for each role
+
     required_credentials = {
         'Manufacturer': {
             'first_name': 'manufacturer',
@@ -60,7 +63,6 @@ def register():
 
     role = data.get('role')
     if role in required_credentials:
-        # Validate credentials for Manufacturer, Distributor, Retailer
         expected = required_credentials[role]
         if (
             data.get('first_name') != expected['first_name'] or
@@ -73,11 +75,9 @@ def register():
         ):
             return jsonify({'error': f'Invalid credentials for {role}. Please use the specified credentials.'}), 400
 
-    # Check for existing email
     if User.query.filter_by(email=data['email']).first():
         return jsonify({'error': 'Email already exists'}), 400
-    
-    # Register user
+
     user = User(
         first_name=data['first_name'],
         last_name=data['last_name'],
@@ -90,6 +90,7 @@ def register():
     db.session.commit()
     return jsonify({'message': 'User registered successfully'})
 
+# --- User Login ---
 @app.route('/login', methods=['POST'])
 def login():
     data = request.get_json()
@@ -102,9 +103,19 @@ def login():
         })
     return jsonify({'error': 'Invalid credentials'}), 401
 
-@app.route('/manufacturer', methods=['GET'])
+# --- Role Access Checks ---
+def get_json_data_or_400():
+    # Utility to get JSON body for GET requests (non-standard, but your code uses it)
+    try:
+        return request.get_json(force=True)
+    except Exception:
+        return None
+
+@app.route('/manufacturer', methods=['POST'])
 def check_manufacturer():
-    data = request.get_json()
+    data = get_json_data_or_400()
+    if not data or 'user_id' not in data:
+        return jsonify({'error': 'Missing user_id in request body'}), 400
     user = User.query.filter_by(id=data['user_id']).first()
     if user and user.role == 'Manufacturer':
         expected = {
@@ -123,9 +134,11 @@ def check_manufacturer():
         return jsonify({'error': 'Unauthorized: Invalid Manufacturer credentials'}), 403
     return jsonify({'error': 'Unauthorized: Not a Manufacturer'}), 403
 
-@app.route('/distributor', methods=['GET'])
+@app.route('/distributor', methods=['POST'])
 def check_distributor():
-    data = request.get_json()
+    data = get_json_data_or_400()
+    if not data or 'user_id' not in data:
+        return jsonify({'error': 'Missing user_id in request body'}), 400
     user = User.query.filter_by(id=data['user_id']).first()
     if user and user.role == 'Distributor':
         expected = {
@@ -144,9 +157,11 @@ def check_distributor():
         return jsonify({'error': 'Unauthorized: Invalid Distributor credentials'}), 403
     return jsonify({'error': 'Unauthorized: Not a Distributor'}), 403
 
-@app.route('/retailer', methods=['GET'])
+@app.route('/retailer', methods=['POST'])
 def check_retailer():
-    data = request.get_json()
+    data = get_json_data_or_400()
+    if not data or 'user_id' not in data:
+        return jsonify({'error': 'Missing user_id in request body'}), 400
     user = User.query.filter_by(id=data['user_id']).first()
     if user and user.role == 'Retailer':
         expected = {
@@ -165,6 +180,7 @@ def check_retailer():
         return jsonify({'error': 'Unauthorized: Invalid Retailer credentials'}), 403
     return jsonify({'error': 'Unauthorized: Not a Retailer'}), 403
 
+# --- Raw Material ---
 @app.route('/raw_material', methods=['POST'])
 def add_raw_material():
     data = request.get_json()
@@ -177,22 +193,22 @@ def add_raw_material():
     )
     db.session.add(raw_material)
     db.session.commit()
-    
-    # Generate QR code
+
+    # QR code links to the /consumer/<id> route
+    qr_url = f"{BASE_URL}/consumer/{raw_material.id}"
+
     qr = qrcode.QRCode(version=1, box_size=10, border=5)
-    qr.add_data(f"https://medical-supply-chain.vercel.app/consumer/{raw_material.id}")
+    qr.add_data(qr_url)
     qr.make(fit=True)
     img = qr.make_image(fill='black', back_color='white')
-    
-    # Save QR code
+
     qr_path = os.path.join(QR_CODE_FARMER_DIR, f"raw_material_{raw_material.id}.png")
     img.save(qr_path)
-    
-    # Convert to base64 for response
+
     buffered = BytesIO()
     img.save(buffered, format="PNG")
     img_str = base64.b64encode(buffered.getvalue()).decode()
-    
+
     return jsonify({
         'id': raw_material.id,
         'message': 'Raw material added successfully',
@@ -201,7 +217,6 @@ def add_raw_material():
 
 @app.route('/raw_materials', methods=['GET'])
 def get_raw_materials():
-    # Get raw materials not used in any Medicine
     used_raw_material_ids = db.session.query(Medicine.raw_material_id).distinct().subquery()
     materials = RawMaterial.query.filter(~RawMaterial.id.in_(used_raw_material_ids)).all()
     return jsonify([{
@@ -210,17 +225,7 @@ def get_raw_materials():
         'quantity': m.quantity
     } for m in materials])
 
-@app.route('/medicines', methods=['GET'])
-def get_medicines():
-    # Get medicines not used in any Distribution
-    used_medicine_ids = db.session.query(Distribution.medicine_id).distinct().subquery()
-    medicines = Medicine.query.filter(~Medicine.id.in_(used_medicine_ids)).all()
-    return jsonify([{
-        'id': m.id,
-        'medicine_name': m.medicine_name,
-        'batch_number': m.batch_number
-    } for m in medicines])
-
+# --- Medicine ---
 @app.route('/medicine', methods=['POST'])
 def add_medicine():
     data = request.get_json()
@@ -234,42 +239,40 @@ def add_medicine():
     )
     db.session.add(medicine)
     db.session.commit()
-    
-    # Generate QR code
+
+    qr_url = f"{BASE_URL}/consumer/{medicine.id}"
+
     qr = qrcode.QRCode(version=1, box_size=10, border=5)
-    qr.add_data(f"https://medical-supply-chain.vercel.app/consumer/{medicine.id}")
+    qr.add_data(qr_url)
     qr.make(fit=True)
     img = qr.make_image(fill='black', back_color='white')
-    
-    # Save QR code to both locations
+
     qr_path = os.path.join(QR_CODE_DIR, f"medicine_{medicine.id}.png")
     qr_path_manufacturer = os.path.join(QR_CODE_MANUFACTURER_DIR, f"medicine_{medicine.id}.png")
     img.save(qr_path)
     img.save(qr_path_manufacturer)
-    
-    # Convert to base64 for response
+
     buffered = BytesIO()
     img.save(buffered, format="PNG")
     img_str = base64.b64encode(buffered.getvalue()).decode()
-    
+
     return jsonify({
         'id': medicine.id,
         'message': 'Medicine added successfully',
         'qr_code': f"data:image/png;base64,{img_str}"
     })
 
-@app.route('/distributions', methods=['GET'])
-def get_distributions():
-    # Get distributions not used in any RetailSale
-    used_distribution_ids = db.session.query(RetailSale.distribution_id).distinct().subquery()
-    distributions = Distribution.query.filter(~Distribution.id.in_(used_distribution_ids)).all()
+@app.route('/medicines', methods=['GET'])
+def get_medicines():
+    used_medicine_ids = db.session.query(Distribution.medicine_id).distinct().subquery()
+    medicines = Medicine.query.filter(~Medicine.id.in_(used_medicine_ids)).all()
     return jsonify([{
-        'id': d.id,
-        'medicine_id': d.medicine_id,
-        'destination': d.destination,
-        'shipment_date': d.shipment_date.strftime('%Y-%m-%d')
-    } for d in distributions])
+        'id': m.id,
+        'medicine_name': m.medicine_name,
+        'batch_number': m.batch_number
+    } for m in medicines])
 
+# --- Distribution ---
 @app.route('/distribution', methods=['POST'])
 def add_distribution():
     data = request.get_json()
@@ -283,28 +286,39 @@ def add_distribution():
     )
     db.session.add(distribution)
     db.session.commit()
-    
-    # Generate QR code
+
+    qr_url = f"{BASE_URL}/consumer/{distribution.medicine_id}"
+
     qr = qrcode.QRCode(version=1, box_size=10, border=5)
-    qr.add_data(f"https://medical-supply-chain.vercel.app/consumer/{distribution.medicine_id}")
+    qr.add_data(qr_url)
     qr.make(fit=True)
     img = qr.make_image(fill='black', back_color='white')
-    
-    # Save QR code
+
     qr_path = os.path.join(QR_CODE_DISTRIBUTOR_DIR, f"medicine_{distribution.medicine_id}.png")
     img.save(qr_path)
-    
-    # Convert to base64 for response
+
     buffered = BytesIO()
     img.save(buffered, format="PNG")
     img_str = base64.b64encode(buffered.getvalue()).decode()
-    
+
     return jsonify({
         'id': distribution.id,
         'message': 'Distribution added successfully',
         'qr_code': f"data:image/png;base64,{img_str}"
     })
 
+@app.route('/distributions', methods=['GET'])
+def get_distributions():
+    used_distribution_ids = db.session.query(RetailSale.distribution_id).distinct().subquery()
+    distributions = Distribution.query.filter(~Distribution.id.in_(used_distribution_ids)).all()
+    return jsonify([{
+        'id': d.id,
+        'medicine_id': d.medicine_id,
+        'destination': d.destination,
+        'shipment_date': d.shipment_date.strftime('%Y-%m-%d')
+    } for d in distributions])
+
+# --- Retail Sale ---
 @app.route('/retail', methods=['POST'])
 def add_retail():
     data = request.get_json()
@@ -317,42 +331,40 @@ def add_retail():
     )
     db.session.add(retail)
     db.session.commit()
-    
-    # Get medicine_id from distribution
+
     distribution = Distribution.query.get_or_404(data['distribution_id'])
     medicine_id = distribution.medicine_id
-    
-    # Generate QR code
+
+    qr_url = f"{BASE_URL}/consumer/{medicine_id}"
+
     qr = qrcode.QRCode(version=1, box_size=10, border=5)
-    qr.add_data(f"https://medical-supply-chain.vercel.app/consumer/{medicine_id}")
+    qr.add_data(qr_url)
     qr.make(fit=True)
     img = qr.make_image(fill='black', back_color='white')
-    
-    # Save QR code
+
     qr_path = os.path.join(QR_CODE_RETAILER_DIR, f"medicine_{medicine_id}.png")
     img.save(qr_path)
-    
-    # Convert to base64 for response
+
     buffered = BytesIO()
     img.save(buffered, format="PNG")
     img_str = base64.b64encode(buffered.getvalue()).decode()
-    
+
     return jsonify({
         'id': retail.id,
         'message': 'Retail sale added successfully',
         'qr_code': f"data:image/png;base64,{img_str}"
     })
 
+# --- Product History ---
 @app.route('/product_history/<int:id>', methods=['GET'])
 def get_product_history(id):
-    # Try to find a medicine first
     medicine = Medicine.query.get(id)
     if medicine:
         raw_material = RawMaterial.query.get(medicine.raw_material_id)
         distributions = Distribution.query.filter_by(medicine_id=medicine.id).all()
         retail_sales = RetailSale.query.filter(RetailSale.distribution_id.in_(
             [d.id for d in distributions])).all()
-        
+
         return jsonify({
             'raw_material': {
                 'material_type': raw_material.material_type,
@@ -378,8 +390,7 @@ def get_product_history(id):
                 'retail_location': r.retail_location
             } for r in retail_sales]
         })
-    
-    # Try to find a raw material
+
     raw_material = RawMaterial.query.get(id)
     if raw_material:
         return jsonify({
@@ -393,8 +404,19 @@ def get_product_history(id):
             'distributions': [],
             'retail_sales': []
         })
-    
+
     return jsonify({'error': 'Record not found'}), 404
 
+# --- New route for QR code scanning --- 
+# This is the key fix:
+@app.route('/consumer/<int:id>', methods=['GET'])
+def consumer_product_history(id):
+    """
+    When scanning the QR code, the link points here.
+    We return the product history in JSON format.
+    """
+    return get_product_history(id)
+
+# --- Main ---
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
