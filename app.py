@@ -17,8 +17,16 @@ app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///supply_chain.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-# Configure CORS to allow requests from the deployed frontend
-CORS(app, resources={r"/*": {"origins": "https://medical-supply-chain.vercel.app"}})
+# Configure CORS to allow requests from localhost (dev) and deployed frontend (prod)
+ALLOWED_ORIGINS = [
+    "https://medical-supply-chain.vercel.app",
+    "http://localhost:4200"
+]
+CORS(app, resources={r"/*": {
+    "origins": ALLOWED_ORIGINS,
+    "methods": ["GET", "POST", "OPTIONS"],
+    "allow_headers": ["Content-Type", "Authorization"]
+}})
 
 init_db(app)
 
@@ -36,10 +44,19 @@ os.makedirs(QR_CODE_MANUFACTURER_DIR, exist_ok=True)
 os.makedirs(QR_CODE_DISTRIBUTOR_DIR, exist_ok=True)
 os.makedirs(QR_CODE_RETAILER_DIR, exist_ok=True)
 
-@app.route('/register', methods=['POST'])
+@app.route('/register', methods=['POST', 'OPTIONS'])
 def register():
+    if request.method == 'OPTIONS':
+        logger.info("Handling OPTIONS request for /register")
+        response = jsonify({'message': 'Preflight OK'})
+        response.headers.add('Access-Control-Allow-Origin', request.headers.get('Origin'))
+        response.headers.add('Access-Control-Allow-Methods', 'POST, OPTIONS')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+        return response
+
     data = request.get_json()
-    
+    logger.info(f"Register request received: {data.get('email')}")
+
     # Define required credentials for each role
     required_credentials = {
         'Manufacturer': {
@@ -103,8 +120,16 @@ def register():
     logger.info(f"User registered: {data['email']}")
     return jsonify({'message': 'User registered successfully'})
 
-@app.route('/login', methods=['POST'])
+@app.route('/login', methods=['POST', 'OPTIONS'])
 def login():
+    if request.method == 'OPTIONS':
+        logger.info("Handling OPTIONS request for /login")
+        response = jsonify({'message': 'Preflight OK'})
+        response.headers.add('Access-Control-Allow-Origin', request.headers.get('Origin'))
+        response.headers.add('Access-Control-Allow-Methods', 'POST, OPTIONS')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+        return response
+
     data = request.get_json()
     user = User.query.filter((User.email == data['identifier']) | (User.phone == data['identifier'])).first()
     if user and user.password == data['password']:
@@ -117,8 +142,16 @@ def login():
     logger.warning(f"Invalid login attempt for {data['identifier']}")
     return jsonify({'error': 'Invalid credentials'}), 401
 
-@app.route('/manufacturer', methods=['GET'])
+@app.route('/manufacturer', methods=['GET', 'OPTIONS'])
 def check_manufacturer():
+    if request.method == 'OPTIONS':
+        logger.info("Handling OPTIONS request for /manufacturer")
+        response = jsonify({'message': 'Preflight OK'})
+        response.headers.add('Access-Control-Allow-Origin', request.headers.get('Origin'))
+        response.headers.add('Access-Control-Allow-Methods', 'GET, OPTIONS')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+        return response
+
     data = request.get_json()
     user = User.query.filter_by(id=data['user_id']).first()
     if user and user.role == 'Manufacturer':
@@ -141,31 +174,48 @@ def check_manufacturer():
     logger.warning(f"Unauthorized Manufacturer access for user_id: {data['user_id']}")
     return jsonify({'error': 'Unauthorized: Not a Manufacturer'}), 403
 
-@app.route('/distributor', methods=['GET'])
+@app.route('/distributor', methods=['GET', 'OPTIONS'])
 def check_distributor():
+    if request.method == 'OPTIONS':
+        logger.info("Handling OPTIONS request for /distributor")
+        response = jsonify({'message': 'Preflight OK'})
+        response.headers.add('Access-Control-Allow-Origin', request.headers.get('Origin'))
+        response.headers.add('Access-Control-Allow-Methods', 'GET, OPTIONS')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+        return response
+
     data = request.get_json()
     user = User.query.filter_by(id=data['user_id']).first()
-    if user and user.role == 'Distributorexpecterator': {
-        'first_name': 'distributor',
-        'last_name': 'distributor',
-        'email': 'distributor@gmail.com',
-        'phone': '3333333333'
-    }
-    if (
-        user.first_name == expected['first_name'] and
-        user.last_name == expected['last_name'] and
-        user.email == expected['email'] and
-        user.phone == expected['phone']
-    ):
-        logger.info(f"Distributor access granted: {user.email}")
-        return jsonify({'message': 'Access granted'})
-    logger.warning(f"Invalid Distributor credentials for user: {user.email}")
-    return jsonify({'error': 'Unauthorized: Invalid Distributor credentials'}), 403
+    if user and user.role == 'Distributor':
+        expected = {
+            'first_name': 'distributor',
+            'last_name': 'distributor',
+            'email': 'distributor@gmail.com',
+            'phone': '3333333333'
+        }
+        if (
+            user.first_name == expected['first_name'] and
+            user.last_name == expected['last_name'] and
+            user.email == expected['email'] and
+            user.phone == expected['phone']
+        ):
+            logger.info(f"Distributor access granted: {user.email}")
+            return jsonify({'message': 'Access granted'})
+        logger.warning(f"Invalid Distributor credentials for user: {user.email}")
+        return jsonify({'error': 'Unauthorized: Invalid Distributor credentials'}), 403
     logger.warning(f"Unauthorized Distributor access for user_id: {data['user_id']}")
     return jsonify({'error': 'Unauthorized: Not a Distributor'}), 403
 
-@app.route('/retailer', methods=['GET'])
+@app.route('/retailer', methods=['GET', 'OPTIONS'])
 def check_retailer():
+    if request.method == 'OPTIONS':
+        logger.info("Handling OPTIONS request for /retailer")
+        response = jsonify({'message': 'Preflight OK'})
+        response.headers.add('Access-Control-Allow-Origin', request.headers.get('Origin'))
+        response.headers.add('Access-Control-Allow-Methods', 'GET, OPTIONS')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+        return response
+
     data = request.get_json()
     user = User.query.filter_by(id=data['user_id']).first()
     if user and user.role == 'Retailer':
@@ -188,8 +238,16 @@ def check_retailer():
     logger.warning(f"Unauthorized Retailer access for user_id: {data['user_id']}")
     return jsonify({'error': 'Unauthorized: Not a Retailer'}), 403
 
-@app.route('/raw_material', methods=['POST'])
+@app.route('/raw_material', methods=['POST', 'OPTIONS'])
 def add_raw_material():
+    if request.method == 'OPTIONS':
+        logger.info("Handling OPTIONS request for /raw_material")
+        response = jsonify({'message': 'Preflight OK'})
+        response.headers.add('Access-Control-Allow-Origin', request.headers.get('Origin'))
+        response.headers.add('Access-Control-Allow-Methods', 'POST, OPTIONS')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+        return response
+
     data = request.get_json()
     raw_material = RawMaterial(
         user_id=data['user_id'],
@@ -223,8 +281,16 @@ def add_raw_material():
         'qr_code': f"data:image/png;base64,{img_str}"
     })
 
-@app.route('/raw_materials', methods=['GET'])
+@app.route('/raw_materials', methods=['GET', 'OPTIONS'])
 def get_raw_materials():
+    if request.method == 'OPTIONS':
+        logger.info("Handling OPTIONS request for /raw_materials")
+        response = jsonify({'message': 'Preflight OK'})
+        response.headers.add('Access-Control-Allow-Origin', request.headers.get('Origin'))
+        response.headers.add('Access-Control-Allow-Methods', 'GET, OPTIONS')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+        return response
+
     # Get raw materials not used in any Medicine
     used_raw_material_ids = db.session.query(Medicine.raw_material_id).distinct().subquery()
     materials = RawMaterial.query.filter(~RawMaterial.id.in_(used_raw_material_ids)).all()
@@ -235,8 +301,16 @@ def get_raw_materials():
         'quantity': m.quantity
     } for m in materials])
 
-@app.route('/medicines', methods=['GET'])
+@app.route('/medicines', methods=['GET', 'OPTIONS'])
 def get_medicines():
+    if request.method == 'OPTIONS':
+        logger.info("Handling OPTIONS request for /medicines")
+        response = jsonify({'message': 'Preflight OK'})
+        response.headers.add('Access-Control-Allow-Origin', request.headers.get('Origin'))
+        response.headers.add('Access-Control-Allow-Methods', 'GET, OPTIONS')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+        return response
+
     # Get medicines not used in any Distribution
     used_medicine_ids = db.session.query(Distribution.medicine_id).distinct().subquery()
     medicines = Medicine.query.filter(~Medicine.id.in_(used_medicine_ids)).all()
@@ -247,8 +321,16 @@ def get_medicines():
         'batch_number': m.batch_number
     } for m in medicines])
 
-@app.route('/medicine', methods=['POST'])
+@app.route('/medicine', methods=['POST', 'OPTIONS'])
 def add_medicine():
+    if request.method == 'OPTIONS':
+        logger.info("Handling OPTIONS request for /medicine")
+        response = jsonify({'message': 'Preflight OK'})
+        response.headers.add('Access-Control-Allow-Origin', request.headers.get('Origin'))
+        response.headers.add('Access-Control-Allow-Methods', 'POST, OPTIONS')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+        return response
+
     data = request.get_json()
     medicine = Medicine(
         user_id=data['user_id'],
@@ -285,8 +367,16 @@ def add_medicine():
         'qr_code': f"data:image/png;base64,{img_str}"
     })
 
-@app.route('/distributions', methods=['GET'])
+@app.route('/distributions', methods=['GET', 'OPTIONS'])
 def get_distributions():
+    if request.method == 'OPTIONS':
+        logger.info("Handling OPTIONS request for /distributions")
+        response = jsonify({'message': 'Preflight OK'})
+        response.headers.add('Access-Control-Allow-Origin', request.headers.get('Origin'))
+        response.headers.add('Access-Control-Allow-Methods', 'GET, OPTIONS')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+        return response
+
     # Get distributions not used in any RetailSale
     used_distribution_ids = db.session.query(RetailSale.distribution_id).distinct().subquery()
     distributions = Distribution.query.filter(~Distribution.id.in_(used_distribution_ids)).all()
@@ -298,8 +388,16 @@ def get_distributions():
         'shipment_date': d.shipment_date.strftime('%Y-%m-%d')
     } for d in distributions])
 
-@app.route('/distribution', methods=['POST'])
+@app.route('/distribution', methods=['POST', 'OPTIONS'])
 def add_distribution():
+    if request.method == 'OPTIONS':
+        logger.info("Handling OPTIONS request for /distribution")
+        response = jsonify({'message': 'Preflight OK'})
+        response.headers.add('Access-Control-Allow-Origin', request.headers.get('Origin'))
+        response.headers.add('Access-Control-Allow-Methods', 'POST, OPTIONS')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+        return response
+
     data = request.get_json()
     distribution = Distribution(
         user_id=data['user_id'],
@@ -334,8 +432,16 @@ def add_distribution():
         'qr_code': f"data:image/png;base64,{img_str}"
     })
 
-@app.route('/retail', methods=['POST'])
+@app.route('/retail', methods=['POST', 'OPTIONS'])
 def add_retail():
+    if request.method == 'OPTIONS':
+        logger.info("Handling OPTIONS request for /retail")
+        response = jsonify({'message': 'Preflight OK'})
+        response.headers.add('Access-Control-Allow-Origin', request.headers.get('Origin'))
+        response.headers.add('Access-Control-Allow-Methods', 'POST, OPTIONS')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+        return response
+
     data = request.get_json()
     retail = RetailSale(
         user_id=data['user_id'],
@@ -373,8 +479,16 @@ def add_retail():
         'qr_code': f"data:image/png;base64,{img_str}"
     })
 
-@app.route('/product_history/<int:id>', methods=['GET'])
+@app.route('/product_history/<int:id>', methods=['GET', 'OPTIONS'])
 def get_product_history(id):
+    if request.method == 'OPTIONS':
+        logger.info("Handling OPTIONS request for /product_history")
+        response = jsonify({'message': 'Preflight OK'})
+        response.headers.add('Access-Control-Allow-Origin', request.headers.get('Origin'))
+        response.headers.add('Access-Control-Allow-Methods', 'GET, OPTIONS')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+        return response
+
     logger.info(f"Fetching product history for ID: {id}")
     # Try to find a medicine first
     medicine = Medicine.query.get(id)
