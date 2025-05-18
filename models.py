@@ -19,6 +19,7 @@ class RawMaterial(db.Model):
     quantity = db.Column(db.Float, nullable=False)
     source_location = db.Column(db.String(200), nullable=False)
     supply_date = db.Column(db.DateTime, nullable=False)
+    qr_code = db.Column(db.Text)  # Store base64 QR code
     user = db.relationship('User', backref='raw_materials')
 
 class Medicine(db.Model):
@@ -30,6 +31,7 @@ class Medicine(db.Model):
     batch_number = db.Column(db.String(50), nullable=False)
     production_date = db.Column(db.DateTime, nullable=False)
     expiry_date = db.Column(db.DateTime, nullable=False)
+    qr_code = db.Column(db.Text)  # Store base64 QR code
     user = db.relationship('User', backref='medicines')
     raw_material = db.relationship('RawMaterial', backref='medicines')
 
@@ -42,6 +44,7 @@ class Distribution(db.Model):
     transport_method = db.Column(db.String(100), nullable=False)
     destination = db.Column(db.String(200), nullable=False)
     storage_condition = db.Column(db.String(200), nullable=False)
+    qr_code = db.Column(db.Text)  # Store base64 QR code
     user = db.relationship('User', backref='distributions')
     medicine = db.relationship('Medicine', backref='distributions')
 
@@ -53,5 +56,6 @@ class RetailSale(db.Model):
     received_date = db.Column(db.DateTime, nullable=False)
     price = db.Column(db.Float, nullable=False)
     retail_location = db.Column(db.String(200), nullable=False)
+    qr_code = db.Column(db.Text)  # Store base64 QR code
     user = db.relationship('User', backref='retail_sales')
     distribution = db.relationship('Distribution', backref='retail_sales')
