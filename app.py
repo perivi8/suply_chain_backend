@@ -1,5 +1,7 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+from flask_bcrypt import Bcrypt
+from flask_migrate import Migrate
 from database import db, init_db
 from models import User, RawMaterial, Medicine, Distribution, RetailSale
 import qrcode
@@ -9,21 +11,30 @@ import base64
 from io import BytesIO
 import logging
 import traceback
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import SQLAlchemyError, OperationalError
 
 # Set up logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler()  # Ensure logs are output to console for Render
+    ]
+)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///supply_chain.db').replace('postgres://', 'postgresql://')
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'postgresql://supply_chain_db_0hs0_user:YVg8UvpzmgrJPWBGRYTaAPczQfIdKTyi@dpg-d0kjfd56ubrc73bbn1bg-a.oregon-postgres.render.com/supply_chain_db_0hs0')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
+# Initialize Bcrypt
+bcrypt = Bcrypt(app)
+
+# Initialize Migrate
+migrate = Migrate(app, db)
+
 # Configure CORS
-ALLOWED_ORIGINS = [
-    "https://medical-supply-chain.vercel.app",
-    "http://localhost:4200"
-]
+ALLOWED_ORIGINS = os.environ.get('ALLOWED_ORIGINS', 'https://medical-supply-chain.vercel.app,http://localhost:4200').split(',')
 CORS(app, resources={r"/*": {
     "origins": ALLOWED_ORIGINS,
     "methods": ["GET", "POST", "OPTIONS"],
@@ -34,6 +45,9 @@ CORS(app, resources={r"/*": {
 try:
     init_db(app)
     logger.info("Database initialized successfully")
+except OperationalError as e:
+    logger.error(f"Database connection failed: {str(e)}\n{traceback.format_exc()}")
+    raise
 except Exception as e:
     logger.error(f"Failed to initialize database: {str(e)}\n{traceback.format_exc()}")
     raise
@@ -66,48 +80,19 @@ def register():
             logger.warning(f"Missing fields: {missing_fields}")
             return jsonify({'error': f'Missing required fields: {", ".join(missing_fields)}'}), 400
 
-        # Define required credentials for each role
-        required_credentials = {
-            'Manufacturer': {
-                'first_name': 'manufacturer',
-                'last_name': 'manufacturer',
-                'email': 'manufacturer@gmail.com',
-                'phone': '2222222222',
-                'password': 'manufacturer',
-                'confirm_password': 'manufacturer'
-            },
-            'Distributor': {
-                'first_name': 'distributor',
-                'last_name': 'distributor',
-                'email': 'distributor@gmail.com',
-                'phone': '3333333333',
-                'password': 'distributor',
-                'confirm_password': 'distributor'
-            },
-            'Retailer': {
-                'first_name': 'retailer',
-                'last_name': 'retailer',
-                'email': 'retailer@gmail.com',
-                'phone': '4444444444',
-                'password': 'retailer',
-                'confirm_password': 'retailer'
-            }
-        }
+        # Validate password
+        if data['password'] != data['confirm_password']:
+            logger.warning("Passwords do not match")
+            return jsonify({'error': 'Passwords do not match'}), 400
+        if len(data['password']) < 8:
+            logger.warning("Password too short")
+            return jsonify({'error': 'Password must be at least 8 characters'}), 400
 
-        role = data.get('role')
-        if role in required_credentials:
-            expected = required_credentials[role]
-            if (
-                data.get('first_name') != expected['first_name'] or
-                data.get('last_name') != expected['last_name'] or
-                data.get('email') != expected['email'] or
-                data.get('phone') != expected['phone'] or
-                data.get('password') != expected['password'] or
-                data.get('confirm_password') != expected['confirm_password'] or
-                data.get('password') != data.get('confirm_password')
-            ):
-                logger.warning(f"Invalid credentials for {role}")
-                return jsonify({'error': f'Invalid credentials for {role}. Please use the specified credentials.'}), 400
+        # Validate role
+        valid_roles = ['Manufacturer', 'Distributor', 'Retailer']
+        if data['role'] not in valid_roles:
+            logger.warning(f"Invalid role: {data['role']}")
+            return jsonify({'error': f'Invalid role. Must be one of: {", ".join(valid_roles)}'}), 400
 
         with app.app_context():
             if User.query.filter_by(email=data['email']).first():
@@ -119,7 +104,7 @@ def register():
                 last_name=data['last_name'],
                 email=data['email'],
                 phone=data['phone'],
-                password=data['password'],  # TODO: Hash password using flask-bcrypt
+                password=bcrypt.generate_password_hash(data['password']).decode('utf-8'),
                 role=data['role']
             )
             db.session.add(user)
@@ -153,7 +138,7 @@ def login():
 
         with app.app_context():
             user = User.query.filter((User.email == data['identifier']) | (User.phone == data['identifier'])).first()
-            if user and user.password == data['password']:  # TODO: Compare hashed password
+            if user and bcrypt.check_password_hash(user.password, data['password']):
                 logger.info(f"User logged in: {user.email}")
                 return jsonify({
                     'id': user.id,
@@ -189,22 +174,8 @@ def check_manufacturer():
         with app.app_context():
             user = User.query.filter_by(id=data['user_id']).first()
             if user and user.role == 'Manufacturer':
-                expected = {
-                    'first_name': 'manufacturer',
-                    'last_name': 'manufacturer',
-                    'email': 'manufacturer@gmail.com',
-                    'phone': '2222222222'
-                }
-                if (
-                    user.first_name == expected['first_name'] and
-                    user.last_name == expected['last_name'] and
-                    user.email == expected['email'] and
-                    user.phone == expected['phone']
-                ):
-                    logger.info(f"Manufacturer access granted: {user.email}")
-                    return jsonify({'message': 'Access granted'})
-                logger.warning(f"Invalid Manufacturer credentials for user: {user.email}")
-                return jsonify({'error': 'Unauthorized: Invalid Manufacturer credentials'}), 403
+                logger.info(f"Manufacturer access granted: {user.email}")
+                return jsonify({'message': 'Access granted'})
             logger.warning(f"Unauthorized Manufacturer access for user_id: {data['user_id']}")
             return jsonify({'error': 'Unauthorized: Not a Manufacturer'}), 403
 
@@ -231,22 +202,8 @@ def check_distributor():
         with app.app_context():
             user = User.query.filter_by(id=data['user_id']).first()
             if user and user.role == 'Distributor':
-                expected = {
-                    'first_name': 'distributor',
-                    'last_name': 'distributor',
-                    'email': 'distributor@gmail.com',
-                    'phone': '3333333333'
-                }
-                if (
-                    user.first_name == expected['first_name'] and
-                    user.last_name == expected['last_name'] and
-                    user.email == expected['email'] and
-                    user.phone == expected['phone']
-                ):
-                    logger.info(f"Distributor access granted: {user.email}")
-                    return jsonify({'message': 'Access granted'})
-                logger.warning(f"Invalid Distributor credentials for user: {user.email}")
-                return jsonify({'error': 'Unauthorized: Invalid Distributor credentials'}), 403
+                logger.info(f"Distributor access granted: {user.email}")
+                return jsonify({'message': 'Access granted'})
             logger.warning(f"Unauthorized Distributor access for user_id: {data['user_id']}")
             return jsonify({'error': 'Unauthorized: Not a Distributor'}), 403
 
@@ -273,22 +230,8 @@ def check_retailer():
         with app.app_context():
             user = User.query.filter_by(id=data['user_id']).first()
             if user and user.role == 'Retailer':
-                expected = {
-                    'first_name': 'retailer',
-                    'last_name': 'retailer',
-                    'email': 'retailer@gmail.com',
-                    'phone': '4444444444'
-                }
-                if (
-                    user.first_name == expected['first_name'] and
-                    user.last_name == expected['last_name'] and
-                    user.email == expected['email'] and
-                    user.phone == expected['phone']
-                ):
-                    logger.info(f"Retailer access granted: {user.email}")
-                    return jsonify({'message': 'Access granted'})
-                logger.warning(f"Invalid Retailer credentials for user: {user.email}")
-                return jsonify({'error': 'Unauthorized: Invalid Retailer credentials'}), 403
+                logger.info(f"Retailer access granted: {user.email}")
+                return jsonify({'message': 'Access granted'})
             logger.warning(f"Unauthorized Retailer access for user_id: {data['user_id']}")
             return jsonify({'error': 'Unauthorized: Not a Retailer'}), 403
 
@@ -321,6 +264,11 @@ def add_raw_material():
             return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD'}), 400
 
         with app.app_context():
+            user = User.query.get(data['user_id'])
+            if not user or user.role != 'Manufacturer':
+                logger.warning(f"Unauthorized: User {data['user_id']} is not a Manufacturer")
+                return jsonify({'error': 'Unauthorized: Only Manufacturers can add raw materials'}), 403
+
             raw_material = RawMaterial(
                 user_id=data['user_id'],
                 material_type=data['material_type'],
@@ -437,6 +385,11 @@ def add_medicine():
             return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD'}), 400
 
         with app.app_context():
+            user = User.query.get(data['user_id'])
+            if not user or user.role != 'Manufacturer':
+                logger.warning(f"Unauthorized: User {data['user_id']} is not a Manufacturer")
+                return jsonify({'error': 'Unauthorized: Only Manufacturers can add medicines'}), 403
+
             medicine = Medicine(
                 user_id=data['user_id'],
                 raw_material_id=data['raw_material_id'],
@@ -528,6 +481,11 @@ def add_distribution():
             return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD'}), 400
 
         with app.app_context():
+            user = User.query.get(data['user_id'])
+            if not user or user.role != 'Distributor':
+                logger.warning(f"Unauthorized: User {data['user_id']} is not a Distributor")
+                return jsonify({'error': 'Unauthorized: Only Distributors can add distributions'}), 403
+
             distribution = Distribution(
                 user_id=data['user_id'],
                 medicine_id=data['medicine_id'],
@@ -592,6 +550,11 @@ def add_retail():
             return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD'}), 400
 
         with app.app_context():
+            user = User.query.get(data['user_id'])
+            if not user or user.role != 'Retailer':
+                logger.warning(f"Unauthorized: User {data['user_id']} is not a Retailer")
+                return jsonify({'error': 'Unauthorized: Only Retailers can add retail sales'}), 403
+
             retail = RetailSale(
                 user_id=data['user_id'],
                 distribution_id=data['distribution_id'],
