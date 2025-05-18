@@ -323,9 +323,9 @@ def add_raw_material():
 
         with app.app_context():
             user = User.query.get(data['user_id'])
-            if not user or user.role != 'Manufacturer':
-                logger.warning(f"Unauthorized: User {data['user_id']} is not a Manufacturer")
-                return jsonify({'error': 'Unauthorized: Only Manufacturers can add raw materials'}), 403
+            if not user or user.role != 'Farmer':
+                logger.warning(f"Unauthorized: User {data['user_id']} is not a Farmer")
+                return jsonify({'error': 'Unauthorized: Only Farmers can add raw materials'}), 403
 
             raw_material = RawMaterial(
                 user_id=data['user_id'],
