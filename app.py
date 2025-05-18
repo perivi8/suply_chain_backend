@@ -55,6 +55,28 @@ except Exception as e:
 # Get frontend URL
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://medical-supply-chain.vercel.app")
 
+# Hardcoded credentials for Manufacturer, Distributor, and Retailer
+required_credentials = {
+    'Manufacturer': {
+        'first_name': 'manufacturer',
+        'last_name': 'manufacturer',
+        'email': 'manufacturer@gmail.com',
+        'phone': '2222222222'
+    },
+    'Distributor': {
+        'first_name': 'distributor',
+        'last_name': 'distributor',
+        'email': 'distributor@gmail.com',
+        'phone': '3333333333'
+    },
+    'Retailer': {
+        'first_name': 'retailer',
+        'last_name': 'retailer',
+        'email': 'retailer@gmail.com',
+        'phone': '4444444444'
+    }
+}
+
 @app.route('/register', methods=['POST', 'OPTIONS'])
 def register():
     if request.method == 'OPTIONS':
@@ -89,10 +111,18 @@ def register():
             return jsonify({'error': 'Password must be at least 8 characters'}), 400
 
         # Validate role
-        valid_roles = ['Manufacturer', 'Distributor', 'Retailer']
+        valid_roles = ['Manufacturer', 'Distributor', 'Retailer', 'Farmer']
         if data['role'] not in valid_roles:
             logger.warning(f"Invalid role: {data['role']}")
             return jsonify({'error': f'Invalid role. Must be one of: {", ".join(valid_roles)}'}), 400
+
+        # Validate credentials for Manufacturer, Distributor, and Retailer
+        if data['role'] in required_credentials:
+            expected = required_credentials[data['role']]
+            for field, expected_value in expected.items():
+                if data[field] != expected_value:
+                    logger.warning(f"Invalid {field} for {data['role']}: got {data[field]}, expected {expected_value}")
+                    return jsonify({'error': f"Invalid {field} for {data['role']}. Must be {expected_value}"}), 400
 
         with app.app_context():
             if User.query.filter_by(email=data['email']).first():
@@ -153,6 +183,34 @@ def login():
         return jsonify({'error': f'Database error: {str(e)}'}), 500
     except Exception as e:
         logger.error(f"Unexpected error during login: {str(e)}\n{traceback.format_exc()}")
+        return jsonify({'error': f'Unexpected error: {str(e)}'}), 500
+
+@app.route('/farmer', methods=['POST', 'OPTIONS'])
+def check_farmer():
+    if request.method == 'OPTIONS':
+        logger.info("Handling OPTIONS request for /farmer")
+        response = jsonify({'message': 'Preflight OK'})
+        response.headers.add('Access-Control-Allow-Origin', request.headers.get('Origin'))
+        response.headers.add('Access-Control-Allow-Methods', 'POST, OPTIONS')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+        return response
+
+    try:
+        data = request.get_json()
+        if not data or 'user_id' not in data:
+            logger.warning("Invalid farmer request: Missing user_id")
+            return jsonify({'error': 'Invalid request: Missing user_id'}), 400
+
+        with app.app_context():
+            user = User.query.filter_by(id=data['user_id']).first()
+            if user and user.role == 'Farmer':
+                logger.info(f"Farmer access granted: {user.email}")
+                return jsonify({'message': 'Access granted'})
+            logger.warning(f"Unauthorized Farmer access for user_id: {data['user_id']}")
+            return jsonify({'error': 'Unauthorized: Not a Farmer'}), 403
+
+    except Exception as e:
+        logger.error(f"Error in check_farmer: {str(e)}\n{traceback.format_exc()}")
         return jsonify({'error': f'Unexpected error: {str(e)}'}), 500
 
 @app.route('/manufacturer', methods=['POST', 'OPTIONS'])
