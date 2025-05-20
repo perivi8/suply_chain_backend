@@ -18,7 +18,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.StreamHandler()  # Ensure logs are output to console for Render
+        logging.StreamHandler()
     ]
 )
 logger = logging.getLogger(__name__)
@@ -27,13 +27,9 @@ app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'postgresql://supply_chain_db_0hs0_user:YVg8UvpzmgrJPWBGRYTaAPczQfIdKTyi@dpg-d0kjfd56ubrc73bbn1bg-a.oregon-postgres.render.com/supply_chain_db_0hs0')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-# Initialize Bcrypt
 bcrypt = Bcrypt(app)
-
-# Initialize Migrate
 migrate = Migrate(app, db)
 
-# Configure CORS
 ALLOWED_ORIGINS = os.environ.get('ALLOWED_ORIGINS', 'https://medical-supply-chain.vercel.app,http://localhost:4200').split(',')
 CORS(app, resources={r"/*": {
     "origins": ALLOWED_ORIGINS,
@@ -41,7 +37,6 @@ CORS(app, resources={r"/*": {
     "allow_headers": ["Content-Type", "Authorization"]
 }})
 
-# Initialize database
 try:
     init_db(app)
     logger.info("Database initialized successfully")
@@ -52,10 +47,8 @@ except Exception as e:
     logger.error(f"Failed to initialize database: {str(e)}\n{traceback.format_exc()}")
     raise
 
-# Get frontend URL
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://medical-supply-chain.vercel.app")
 
-# Hardcoded credentials for Manufacturer, Distributor, and Retailer
 required_credentials = {
     'Manufacturer': {
         'first_name': 'manufacturer',
@@ -95,14 +88,12 @@ def register():
 
         logger.info(f"Register request received: {data.get('email')}")
 
-        # Validate required fields
         required_fields = ['first_name', 'last_name', 'email', 'phone', 'password', 'confirm_password', 'role']
         missing_fields = [field for field in required_fields if not data.get(field)]
         if missing_fields:
             logger.warning(f"Missing fields: {missing_fields}")
             return jsonify({'error': f'Missing required fields: {", ".join(missing_fields)}'}), 400
 
-        # Validate password
         if data['password'] != data['confirm_password']:
             logger.warning("Passwords do not match")
             return jsonify({'error': 'Passwords do not match'}), 400
@@ -110,13 +101,11 @@ def register():
             logger.warning("Password too short")
             return jsonify({'error': 'Password must be at least 8 characters'}), 400
 
-        # Validate role
         valid_roles = ['Manufacturer', 'Distributor', 'Retailer', 'Farmer']
         if data['role'] not in valid_roles:
             logger.warning(f"Invalid role: {data['role']}")
             return jsonify({'error': f'Invalid role. Must be one of: {", ".join(valid_roles)}'}), 400
 
-        # Validate credentials for Manufacturer, Distributor, and Retailer
         if data['role'] in required_credentials:
             expected = required_credentials[data['role']]
             for field, expected_value in expected.items():
@@ -337,24 +326,10 @@ def add_raw_material():
             db.session.add(raw_material)
             db.session.commit()
 
-            # Generate QR code
-            qr = qrcode.QRCode(version=1, box_size=10, border=5)
-            qr.add_data(f"{FRONTEND_URL}/consumer/{raw_material.id}")
-            qr.make(fit=True)
-            img = qr.make_image(fill='black', back_color='white')
-
-            # Save QR code as base64 string
-            buffered = BytesIO()
-            img.save(buffered, format="PNG")
-            img_str = base64.b64encode(buffered.getvalue()).decode()
-            raw_material.qr_code = f"data:image/png;base64,{img_str}"
-            db.session.commit()
-
             logger.info(f"Raw material added: ID {raw_material.id}")
             return jsonify({
                 'id': raw_material.id,
-                'message': 'Raw material added successfully',
-                'qr_code': raw_material.qr_code
+                'message': 'Raw material added successfully'
             })
 
     except SQLAlchemyError as e:
@@ -383,8 +358,7 @@ def get_raw_materials():
             return jsonify([{
                 'id': m.id,
                 'material_type': m.material_type,
-                'quantity': m.quantity,
-                'qr_code': m.qr_code
+                'quantity': m.quantity
             } for m in materials])
 
     except Exception as e:
@@ -409,8 +383,7 @@ def get_medicines():
             return jsonify([{
                 'id': m.id,
                 'medicine_name': m.medicine_name,
-                'batch_number': m.batch_number,
-                'qr_code': m.qr_code
+                'batch_number': m.batch_number
             } for m in medicines])
 
     except Exception as e:
@@ -459,24 +432,10 @@ def add_medicine():
             db.session.add(medicine)
             db.session.commit()
 
-            # Generate QR code
-            qr = qrcode.QRCode(version=1, box_size=10, border=5)
-            qr.add_data(f"{FRONTEND_URL}/consumer/{medicine.id}")
-            qr.make(fit=True)
-            img = qr.make_image(fill='black', back_color='white')
-
-            # Save QR code as base64 string
-            buffered = BytesIO()
-            img.save(buffered, format="PNG")
-            img_str = base64.b64encode(buffered.getvalue()).decode()
-            medicine.qr_code = f"data:image/png;base64,{img_str}"
-            db.session.commit()
-
             logger.info(f"Medicine added: ID {medicine.id}")
             return jsonify({
                 'id': medicine.id,
-                'message': 'Medicine added successfully',
-                'qr_code': medicine.qr_code
+                'message': 'Medicine added successfully'
             })
 
     except SQLAlchemyError as e:
@@ -506,8 +465,7 @@ def get_distributions():
                 'id': d.id,
                 'medicine_id': d.medicine_id,
                 'destination': d.destination,
-                'shipment_date': d.shipment_date.strftime('%Y-%m-%d'),
-                'qr_code': d.qr_code
+                'shipment_date': d.shipment_date.strftime('%Y-%m-%d')
             } for d in distributions])
 
     except Exception as e:
@@ -555,24 +513,10 @@ def add_distribution():
             db.session.add(distribution)
             db.session.commit()
 
-            # Generate QR code
-            qr = qrcode.QRCode(version=1, box_size=10, border=5)
-            qr.add_data(f"{FRONTEND_URL}/consumer/{distribution.medicine_id}")
-            qr.make(fit=True)
-            img = qr.make_image(fill='black', back_color='white')
-
-            # Save QR code as base64 string
-            buffered = BytesIO()
-            img.save(buffered, format="PNG")
-            img_str = base64.b64encode(buffered.getvalue()).decode()
-            distribution.qr_code = f"data:image/png;base64,{img_str}"
-            db.session.commit()
-
             logger.info(f"Distribution added: ID {distribution.id}")
             return jsonify({
                 'id': distribution.id,
-                'message': 'Distribution added successfully',
-                'qr_code': distribution.qr_code
+                'message': 'Distribution added successfully'
             })
 
     except SQLAlchemyError as e:
@@ -677,22 +621,19 @@ def get_product_history(id):
                         'material_type': raw_material.material_type,
                         'quantity': raw_material.quantity,
                         'source_location': raw_material.source_location,
-                        'supply_date': raw_material.supply_date.strftime('%Y-%m-%d'),
-                        'qr_code': raw_material.qr_code
+                        'supply_date': raw_material.supply_date.strftime('%Y-%m-%d')
                     } if raw_material else None,
                     'medicine': {
                         'medicine_name': medicine.medicine_name,
                         'batch_number': medicine.batch_number,
                         'production_date': medicine.production_date.strftime('%Y-%m-%d'),
-                        'expiry_date': medicine.expiry_date.strftime('%Y-%m-%d'),
-                        'qr_code': medicine.qr_code
+                        'expiry_date': medicine.expiry_date.strftime('%Y-%m-%d')
                     },
                     'distributions': [{
                         'shipment_date': d.shipment_date.strftime('%Y-%m-%d'),
                         'transport_method': d.transport_method,
                         'destination': d.destination,
-                        'storage_condition': d.storage_condition,
-                        'qr_code': d.qr_code
+                        'storage_condition': d.storage_condition
                     } for d in distributions],
                     'retail_sales': [{
                         'received_date': r.received_date.strftime('%Y-%m-%d'),
@@ -709,8 +650,7 @@ def get_product_history(id):
                         'material_type': raw_material.material_type,
                         'quantity': raw_material.quantity,
                         'source_location': raw_material.source_location,
-                        'supply_date': raw_material.supply_date.strftime('%Y-%m-%d'),
-                        'qr_code': raw_material.qr_code
+                        'supply_date': raw_material.supply_date.strftime('%Y-%m-%d')
                     },
                     'medicine': None,
                     'distributions': [],
